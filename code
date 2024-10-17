@@ -1,0 +1,148 @@
+import os
+from PyPDF2 import PdfFileReader, PdfFileWriter
+from pdf2image import convert_from_path
+import json
+
+# Definir la API key de Groq como variable de entorno
+os.environ["GROQ_API_KEY"] = "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"
+
+# Configurar el cliente Groq utilizando la variable de entorno
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+# Crear carpetas para los archivos divididos y los JSONs
+def create_folders(base_name):
+    if not os.path.exists(base_name):
+        os.makedirs(base_name)
+    slides_folder = os.path.join(base_name, "slides")
+    json_folder = os.path.join(base_name, "json")
+    os.makedirs(slides_folder, exist_ok=True)
+    os.makedirs(json_folder, exist_ok=True)
+    return slides_folder, json_folder
+
+# Dividir el PDF en archivos individuales para cada slide
+def split_pdf(file_path, output_folder):
+    with open(file_path, "rb") as pdf_file:
+        pdf_reader = PdfFileReader(pdf_file)
+        for page_num in range(pdf_reader.numPages):
+            pdf_writer = PdfFileWriter()
+            pdf_writer.addPage(pdf_reader.getPage(page_num))
+
+            slide_path = os.path.join(output_folder, f"Slide_{page_num+1}.pdf")
+            with open(slide_path, "wb") as output_pdf:
+                pdf_writer.write(output_pdf)
+            print(f"Slide {page_num+1} guardado en {slide_path}")
+
+# Enviar cada slide al modelo con el prompt y guardar los resultados
+def process_slides(slides_folder, json_folder, prompt):
+    for slide_file in os.listdir(slides_folder):
+        slide_path = os.path.join(slides_folder, slide_file)
+
+        # Leer el archivo PDF (convertir a imágenes si es necesario)
+        images = convert_from_path(slide_path)
+
+        prompt = ("""
+            Analiza la siguiente slide y proporciona los metadatos en formato JSON. Los metadatos deben incluir:
+            
+            1. Título: Extrae el título de la slide.
+            2. Subtítulo: Extrae el subtítulo de la slide.
+            3. Resto de texto: Extrae todo el texto restante de la slide.
+            4. Descripción de gráficos y figuras: Proporciona una descripción detallada de los gráficos, figuras o cronogramas presentes en la slide, incluyendo su tipo (como cronogramas, gráficos de barras, diagramas de flujo, etc.) y su propósito.
+            5. Descripción de la slide: Proporciona una descripción general de la slide, destacando el tipo de información que presenta (por ejemplo, cronograma de planificación de fases, gráfico comparativo de ventas, etc.).
+            6. Formato de slide: Indica el formato de la slide (por ejemplo, 4:3, 16:9, etc.).
+            7. Cliente objetivo: Especifica a qué cliente o audiencia está dirigida la slide.
+            8. Análisis de contenido: Utiliza herramientas de análisis de texto para extraer temas y conceptos clave del contenido de la slide (por ejemplo, “automatización de procesos”, “planificación de proyectos”, “seguridad informática”).
+            9. Reconocimiento de imágenes: Implementa tecnología de reconocimiento de imágenes para identificar elementos visuales relacionados con temas específicos como “arquitectura cloud” o “seguridad”.
+            10. Transcripción de texto en imágenes: Extrae texto de las imágenes y añádelo a los metadatos.
+            11. Frecuencia de palabras clave: Analiza la frecuencia de palabras clave relacionadas con temas específicos en el texto de la slide, escribe la palabra clave y entre paréntesis su número de frecuencia.
+            12. Contexto semántico (NLP): Emplea técnicas de procesamiento del lenguaje natural para entender el contexto y la semántica del contenido.
+            13. Metadatos generados automáticamente: Incluye metadatos basados en patrones y temas recurrentes en la slide (como “planificación de fases”, “infraestructura tecnológica”, etc.).
+            14. Fecha del proyecto o slide: Identifica la fecha o el período del proyecto si aparece en el contenido de la slide.
+            15. Etiquetas de contenido: Añade etiquetas relacionadas con temas importantes de la slide (por ejemplo, "planificación", "cronograma", "automatización", "cloud computing").
+            16. Duración o fase del proyecto: Si aplica, menciona en qué fase o etapas del proyecto se encuentra la información mostrada en la slide.
+            17. Responsables o equipos involucrados: Extrae nombres de equipos, empresas o personas involucradas que aparezcan en la slide.
+            18. Relación con otras slides: Indica si la slide tiene relación con otras fases o partes del proyecto que podrían estar en otras slides.
+            19. Categoría interna (elige una): Asigna la slide a una de las siguientes categorías internas, según el tipo de contenido que presenta:
+            
+               - Portada: Slide de la portada de la presentación.
+               - Índice: Contiene en el índice de la presentación.
+               - Contexto y antecedentes: Descripción del problema, factores clave, objetivos del cliente, análisis previo.
+               - Nuestro enfoque: Propuesta de solución, valor diferencial, principios aplicados, beneficios específicos.
+               - Cronograma del proyecto: Líneas de tiempo, fases del proyecto, fechas clave, gráficos de Gantt.
+               - Metodología de trabajo: Framework utilizado, etapas del proyecto, procesos de revisión, mapeo de recursos.
+               - Honorarios: Estructura de precios, desglose de costos, modalidades de pago.
+               - Equipo de trabajo: Perfiles del equipo, roles clave, experiencia relevante, estructura del equipo.
+               - Arquitectura: Descripción general del sistema, diagramas de componentes e interacciones, detalles de la infraestructura tecnológica, justificación de decisiones de diseño, e integración con otros sistemas y servicios.
+               - Roles y responsabilidades: Responsabilidades asignadas, descripción de funciones, roles del equipo, accountability.
+               - Experiencia y CVs: Proyectos anteriores, currículums del equipo, casos de éxito, referencias.
+               - Herramientas y tecnologías: Software utilizado, tecnologías aplicadas, plataformas, herramientas específicas.
+               - Plan de implementación: Etapas de implementación, recursos requeridos, timeline de ejecución, hitos clave.
+               - Separadores: Tiene la función de marcar el inicio de una nueva sección dentro de una presentación. Estas slides suelen incluir elementos visuales y textuales que indican claramente el cambio de tema o la transición a una nueva parte del contenido
+               - Seguimiento y control: KPIs, herramientas de monitoreo, métodos de control, procesos de seguimiento.
+               - Indicadores de éxito: KPIs de éxito, métricas clave, criterios de evaluación, resultados esperados.
+               - Próximos pasos: Tareas inmediatas, decisiones pendientes, fechas de inicio, próximos hitos.
+               - Apéndices: Información adicional, gráficos complementarios, detalles de soporte, aclaraciones.
+               - Documentación adicional: Reportes anexos, análisis en profundidad, documentos técnicos.
+               - Anexos técnicos: Especificaciones técnicas, requerimientos técnicos, detalles de sistemas o plataformas.
+               - Otros: Si no entra en ninguna de las categorías anteriores o es un simple gracias.
+            
+                El formato JSON de salida debe ser:
+                {
+                "Título": "",
+                "Subtítulo": "",
+                "Resto de texto": "",
+                "Descripción de gráficos y figuras": "",
+                "Descripción de la slide": "",
+                "Formato de slide": "",
+                "Cliente objetivo": "",
+                "Análisis de contenido": "",
+                "Reconocimiento de imágenes": "",
+                "Transcripción de texto en imágenes": "",
+                "Frecuencia de palabras clave": "",
+                "Contexto semántico (NLP)": "",
+                "Metadatos generados automáticamente": "",
+                "Fecha del proyecto o slide": "",
+                "Etiquetas de contenido": [],
+                "Duración o fase del proyecto": "",
+                "Responsables o equipos involucrados": [],
+                "Relación con otras slides": "",
+                "Categoría interna": ""
+                })
+            """
+
+
+        # Enviar el prompt al modelo Groq para cada slide
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],  
+            model="llama-3.1-70b-versatile"
+        )
+
+        try:
+            response_text = chat_completion.choices[0].message.content.strip()
+        except AttributeError:
+            response_text = "Error en la respuesta"
+
+        # Guardar el JSON generado
+        json_output = os.path.join(json_folder, slide_file.replace(".pdf", ".json"))
+        with open(json_output, "w") as json_file:
+            json.dump(response_text, json_file, indent=4)
+        print(f"Metadatos guardados en {json_output}")
+
+# Función principal
+def process_presentation(presentation_path):
+    # Obtener el nombre base de la presentación
+    base_name = os.path.splitext(os.path.basename(presentation_path))[0]
+
+    # Crear carpetas para slides y JSONs
+    slides_folder, json_folder = create_folders(base_name)
+
+    # Dividir la presentación en slides individuales
+    split_pdf(presentation_path, slides_folder)
+
+    # Procesar cada slide con el prompt y guardar el JSON correspondiente
+    process_slides(slides_folder, json_folder, prompt)
+
+# Ruta al archivo PDF de la presentación
+presentation_path = "ruta_a_tu_presentacion.pdf"
+
+# Ejecutar el procesamiento de la presentación
+process_presentation(presentation_path)
