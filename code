@@ -4,7 +4,7 @@ from pdf2image import convert_from_path
 import json
 
 # Definir la API key de Groq como variable de entorno
-os.environ["GROQ_API_KEY"] = "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"
+os.environ["GROQ_API_KEY"] = "<TU-API-DE-GROQ>"
 
 # Configurar el cliente Groq utilizando la variable de entorno
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
